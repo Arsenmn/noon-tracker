@@ -39,6 +39,20 @@ export interface UserTrackingSubscription {
   targetPriceMinor: number | null;
 }
 
+const ACTIVE_SUBSCRIPTION_PROJECTION = {
+  telegramUserId: 1,
+  chatId: 1,
+  sku: 1,
+  canonicalUrl: 1,
+  title: 1,
+  targetPriceMinor: 1,
+  targetPriceTriggered: 1,
+  lastLeaderOfferId: 1,
+  lastLeaderSellerName: 1,
+  leaderChangeVersion: 1,
+  targetPriceCycle: 1,
+} as const;
+
 @Injectable()
 export class TrackingSubscriptionService {
   constructor(
@@ -88,56 +102,19 @@ export class TrackingSubscriptionService {
   }
 
   async findActive(): Promise<ActiveTrackingSubscription[]> {
-    const subscriptions = await this.subscriptions
-      .find({ isActive: true })
-      .select({
-        telegramUserId: 1,
-        chatId: 1,
-        sku: 1,
-        canonicalUrl: 1,
-        title: 1,
-        targetPriceMinor: 1,
-        targetPriceTriggered: 1,
-        lastLeaderOfferId: 1,
-        lastLeaderSellerName: 1,
-        leaderChangeVersion: 1,
-        targetPriceCycle: 1,
-      })
-      .lean()
-      .exec();
-
-    return subscriptions.map((subscription) => ({
-      id: String(subscription._id),
-      telegramUserId: subscription.telegramUserId,
-      chatId: subscription.chatId,
-      sku: subscription.sku,
-      canonicalUrl: subscription.canonicalUrl,
-      title: subscription.title,
-      targetPriceMinor: subscription.targetPriceMinor,
-      targetPriceTriggered: subscription.targetPriceTriggered ?? false,
-      lastLeaderOfferId: subscription.lastLeaderOfferId ?? null,
-      lastLeaderSellerName: subscription.lastLeaderSellerName ?? null,
-      leaderChangeVersion: subscription.leaderChangeVersion ?? 0,
-      targetPriceCycle: subscription.targetPriceCycle ?? 0,
-    }));
+    return this.findActiveMatching();
   }
 
   async findActiveBySku(sku: string): Promise<ActiveTrackingSubscription[]> {
+    return this.findActiveMatching(sku);
+  }
+
+  private async findActiveMatching(
+    sku?: string,
+  ): Promise<ActiveTrackingSubscription[]> {
     const subscriptions = await this.subscriptions
-      .find({ sku, isActive: true })
-      .select({
-        telegramUserId: 1,
-        chatId: 1,
-        sku: 1,
-        canonicalUrl: 1,
-        title: 1,
-        targetPriceMinor: 1,
-        targetPriceTriggered: 1,
-        lastLeaderOfferId: 1,
-        lastLeaderSellerName: 1,
-        leaderChangeVersion: 1,
-        targetPriceCycle: 1,
-      })
+      .find({ ...(sku ? { sku } : {}), isActive: true })
+      .select(ACTIVE_SUBSCRIPTION_PROJECTION)
       .lean()
       .exec();
 

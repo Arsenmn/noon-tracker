@@ -104,15 +104,16 @@ Delivery context должен оставаться одинаковым межд
 
 1. Проверяет кеш сессии.
 2. Если кеш жив, возвращает его без запуска Chromium.
-3. Если обновление уже выполняется, другие callers ожидают общий `refreshPromise`.
-4. Запускает persistent Chromium context через Playwright Extra и stealth plugin.
+3. Если обновление уже выполняется, другие вызовы ожидают общий `refreshPromise`.
+4. При первом обращении лениво запускает persistent Chromium context через Playwright Extra и stealth plugin.
 5. Если настроен `PROXY_URL`, браузер по умолчанию использует тот же proxy, что и Axios.
 6. Определяет browser User-Agent и заменяет маркер `HeadlessChrome` на `Chrome` до навигации.
-7. До `page.goto()` начинает ожидать реальный GET catalog request.
+7. До `page.goto()` подписывается на реальный GET catalog request.
 8. Открывает страницу с `waitUntil: 'commit'`, чтобы не зависеть от долгой загрузки всех ресурсов.
 9. При успешном перехвате читает `request.allHeaders()`.
-10. Если request не появился за timeout, использует безопасный fallback: `context.cookies(productUrl)` и browser User-Agent.
-11. Закрывает browser context и сохраняет результат в памяти.
+10. Если request не появился в течение уже настроенного settle window, использует безопасный fallback: `context.cookies(productUrl)` и browser User-Agent.
+11. Сохраняет HTTP-сессию в памяти, а browser context и одну страницу переиспользует для следующих refresh.
+12. Закрывает Chromium при shutdown приложения либо после `NOON_BROWSER_IDLE_MS` бездействия.
 
 Отсутствие перехваченного catalog request само по себе не является ошибкой. Страница может не выполнить этот запрос из-за варианта frontend, кеша, anti-bot ответа или неполной загрузки. В этом случае достаточно cookies из browser context, если последующий Axios-запрос принимается Noon.
 
@@ -125,7 +126,9 @@ Delivery context должен оставаться одинаковым межд
 
 Cookies с `expires <= 0` считаются session cookies; для них используется общий TTL. Safety skew обновляет сессию немного заранее. По умолчанию TTL равен четырём минутам, skew — 30 секундам.
 
-При HTTP `401`, `403`, `429` или `503` кеш инвалидируется, Chromium создаёт новую сессию, а Axios выполняет ещё одну попытку. Сетевые ошибки proxy вроде `ECONNREFUSED` и `ECONNABORTED` не являются ошибкой cookies: запрос в таком случае не дошёл до Noon и повторяется уже механизмом BullMQ.
+При HTTP `401`, `403`, `429` или `503` кеш инвалидируется, переиспользуемый Chromium обновляет browser state, а Axios выполняет ещё одну попытку. Сетевые ошибки proxy вроде `ECONNREFUSED` и `ECONNABORTED` не являются ошибкой cookies: запрос в таком случае не дошёл до Noon и повторяется уже механизмом BullMQ.
+
+Такой lifecycle убирает запуск процесса Chromium каждые несколько минут и отдельное десятисекундное ожидание `waitForRequest`. При этом idle timer освобождает память браузера, когда мониторинг фактически не использует сессию.
 
 ## Нормализация ответа
 

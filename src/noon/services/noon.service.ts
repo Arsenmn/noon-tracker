@@ -3,7 +3,9 @@ import { NormalizedNoonOffer } from '../noon.types';
 
 @Injectable()
 export class NoonService {
-  selectLeader(offers: NormalizedNoonOffer[]): NormalizedNoonOffer | null {
+  selectLeader(
+    offers: readonly NormalizedNoonOffer[],
+  ): NormalizedNoonOffer | null {
     const available = offers.filter((offer) => offer.available);
     if (available.length === 0) {
       return null;
@@ -15,5 +17,14 @@ export class NoonService {
       }
       return offer.offerId.localeCompare(leader.offerId) < 0 ? offer : leader;
     });
+  }
+
+  selectOfferAtOrBelow(
+    offers: readonly NormalizedNoonOffer[],
+    targetPriceMinor: number,
+  ): NormalizedNoonOffer | null {
+    return this.selectLeader(
+      offers.filter((offer) => offer.priceMinor <= targetPriceMinor),
+    );
   }
 }

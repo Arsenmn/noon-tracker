@@ -1,6 +1,6 @@
 # Архитектура Noon Tracker
 
-Связанные документы: [API Noon](api.md), [база данных](database.md), [очереди](queues.md), [рабочий процесс](workflow.md).
+Связанные документы: [API Noon](api.md), [база данных](database.md), [очереди](queues.md), [рабочий процесс](workflow.md), [рефакторинг](refactor.md).
 
 ## Общая схема
 
@@ -45,9 +45,11 @@ Telegram-интерфейс. Модуль регистрирует handlers до
 ### `src/noon`
 
 - `noon-url.ts` проверяет UAE-ссылку, извлекает SKU и удаляет tracking query-параметры;
-- `NoonSessionService` получает cookies и User-Agent через persistent Playwright context и кеширует результат;
+- `NoonBrowserSessionService` управляет единственным лениво созданным Playwright context, навигацией и извлечением browser headers;
+- `NoonSessionService` отвечает только за кеш, срок жизни сессии и объединение конкурентных refresh;
 - `NoonClientService` отправляет Axios-запрос с браузерной сессией и явным delivery context;
 - `noon-payload.parser.ts` валидирует нестабильный внешний JSON и преобразует его во внутреннюю модель;
+- `noon-snapshot.mapper.ts` выбирает нужный variant и собирает доменный snapshot;
 - `NoonService` содержит чистую доменную операцию выбора лидера.
 
 Доменная логика не зависит от HTML-селекторов или исходной структуры JSON Noon.
@@ -81,7 +83,7 @@ Telegram-интерфейс. Модуль регистрирует handlers до
 
 ## Сессия Noon
 
-При первом запросе `NoonSessionService` открывает страницу товара в Playwright, пытается перехватить настоящий catalog request и прочитать его headers. Если request не появился за timeout, используются cookies из browser context. Axios получает `Cookie`, нормализованный `User-Agent` и delivery headers. При наличии `PROXY_URL` Playwright и Axios используют один proxy, чтобы IP-контекст сессии совпадал.
+При первом запросе `NoonBrowserSessionService` лениво запускает Chromium и открывает страницу товара, пытаясь перехватить настоящий catalog request. Если request не появился за settle window, используются cookies из browser context. Контекст, страница и вычисленный User-Agent переиспользуются; повторный запуск Chromium не требуется при каждом обновлении cookies. При наличии `PROXY_URL` Playwright и Axios используют один proxy, чтобы IP-контекст сессии совпадал.
 
 Сессия кешируется до более раннего из двух моментов:
 
@@ -89,6 +91,8 @@ Telegram-интерфейс. Модуль регистрирует handlers до
 2. самого раннего срока постоянного cookie минус `NOON_COOKIE_EXPIRY_SKEW_MS`.
 
 Session cookies без явного срока жизни используют настроенный TTL. Одновременные запросы используют один `refreshPromise`. Ответы `401`, `403`, `429` и `503` инвалидируют кеш и вызывают одну принудительную попытку обновления.
+
+Chromium закрывается через Nest lifecycle hook или после `NOON_BROWSER_IDLE_MS` без обновлений сессии. Это ограничивает постоянное потребление памяти, сохраняя выигрыш от повторного использования процесса при активном мониторинге.
 
 Логи показывают источник сессии, User-Agent, имена и количество cookies, длину Cookie header и срок кеша. Значения cookies не логируются.
 

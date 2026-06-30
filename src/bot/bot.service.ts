@@ -1,17 +1,23 @@
 import {
-  BadGatewayException,
-  BadRequestException,
   Injectable,
   Logger,
   OnApplicationShutdown,
   OnModuleInit,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Context, Markup, Telegraf } from 'telegraf';
 import { NoonClientService } from '../noon/services/noon-client.service';
 import { NoonService } from '../noon/services/noon.service';
 import { NoonProductSnapshot, NormalizedNoonOffer } from '../noon/noon.types';
+import {
+  chunkLines,
+  currentOfferSummary,
+  formatPrice,
+  noonErrorMessage,
+  offerListMessages,
+  parseTargetPriceMinor,
+  productHeading,
+} from './bot-presenter';
 import { TrackingSubscriptionService } from './tracking-subscription.service';
 
 const START_MESSAGE =
@@ -28,7 +34,6 @@ const HELP_MESSAGE = [
 ].join('\n');
 const SKIP_TARGET_CALLBACK = 'tracking:skip-target';
 const STOP_TRACKING_CALLBACK = /^tracking:stop:([a-f\d]{24})$/i;
-const MAX_PRICE_MINOR = 100_000_000_00;
 
 interface PendingProduct {
   snapshot: NoonProductSnapshot;
@@ -139,7 +144,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       [
         `Сменился лидер: ${notification.title}`,
         `${notification.oldSellerName} → ${notification.newSellerName}`,
-        `Новая минимальная цена: ${this.formatPrice(notification.newPriceMinor)}`,
+        `Новая минимальная цена: ${formatPrice(notification.newPriceMinor)}`,
         notification.url,
       ].join('\n'),
     );
@@ -153,8 +158,8 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       chatId,
       [
         `Цена достигнута: ${notification.title}`,
-        `${notification.sellerName}: ${this.formatPrice(notification.offerPriceMinor)}`,
-        `Ваш порог: ${this.formatPrice(notification.targetPriceMinor)}`,
+        `${notification.sellerName}: ${formatPrice(notification.offerPriceMinor)}`,
+        `Ваш порог: ${formatPrice(notification.targetPriceMinor)}`,
         notification.url,
       ].join('\n'),
     );
@@ -244,7 +249,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
     const state = this.conversations.get(key);
     const text = context.message.text.trim();
     if (state?.pendingProduct) {
-      const targetPriceMinor = this.parsePriceMinor(text);
+      const targetPriceMinor = parseTargetPriceMinor(text);
       if (targetPriceMinor === null) {
         await context.reply('Введите цену в AED, например 899 или 899.99.');
         return;
@@ -261,7 +266,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
     const targetPriceMinor = targetText
-      ? this.parsePriceMinor(targetText)
+      ? parseTargetPriceMinor(targetText)
       : undefined;
     if (targetText && targetPriceMinor === null) {
       await context.reply('Цена должна быть в AED, например 899 или 899.99.');
@@ -281,7 +286,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       if (!leader) {
         this.conversations.delete(key);
         await context.reply(
-          `${this.productHeading(snapshot)}\nСейчас нет доступных предложений. Попробуйте позже.`,
+          `${productHeading(snapshot)}\nСейчас нет доступных предложений. Попробуйте позже.`,
         );
         return;
       }
@@ -295,8 +300,8 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
         return;
       }
 
-      await context.reply(this.currentOfferSummary(snapshot, leader));
-      for (const offerListMessage of this.offerListMessages(snapshot, leader)) {
+      await context.reply(currentOfferSummary(snapshot, leader));
+      for (const offerListMessage of offerListMessages(snapshot, leader)) {
         await context.reply(offerListMessage);
       }
       await context.reply(
@@ -308,7 +313,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
     } catch (error: unknown) {
       this.conversations.delete(key);
       this.logNoonError(identity, error);
-      await context.reply(this.noonErrorMessage(error));
+      await context.reply(noonErrorMessage(error));
     }
   }
 
@@ -334,10 +339,10 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       const target =
         subscription.targetPriceMinor === null
           ? 'без целевой цены'
-          : this.formatPrice(subscription.targetPriceMinor);
+          : formatPrice(subscription.targetPriceMinor);
       return `${index + 1}. ${name}\nSKU: ${subscription.sku}\nЦель: ${target}`;
     });
-    for (const message of this.chunkLines('Активные отслеживания:', lines)) {
+    for (const message of chunkLines('Активные отслеживания:', lines)) {
       await context.reply(message);
     }
   }
@@ -364,7 +369,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       const target =
         subscription.targetPriceMinor === null
           ? 'без цены'
-          : this.formatPrice(subscription.targetPriceMinor);
+          : formatPrice(subscription.targetPriceMinor);
       const label = `${name} — ${target}`;
       return [
         Markup.button.callback(
@@ -405,9 +410,9 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
       const target =
         targetPriceMinor === null
           ? 'Без целевой цены.'
-          : `Целевая цена: ${this.formatPrice(targetPriceMinor)}.`;
+          : `Целевая цена: ${formatPrice(targetPriceMinor)}.`;
       await context.reply(
-        `Отслеживание включено.\n${this.currentOfferSummary(pending.snapshot, pending.leader)}\n${target}`,
+        `Отслеживание включено.\n${currentOfferSummary(pending.snapshot, pending.leader)}\n${target}`,
       );
     } catch (error: unknown) {
       this.logger.error(
@@ -418,95 +423,6 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
         'Не удалось сохранить отслеживание. Повторите попытку позже.',
       );
     }
-  }
-
-  private parsePriceMinor(value: string): number | null {
-    const normalized = value.trim().replace(/\s+/g, '').replace(',', '.');
-    const match = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(normalized);
-    if (!match) {
-      return null;
-    }
-    const minor =
-      Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'));
-    return Number.isSafeInteger(minor) && minor > 0 && minor <= MAX_PRICE_MINOR
-      ? minor
-      : null;
-  }
-
-  private formatPrice(priceMinor: number): string {
-    return `AED ${Math.floor(priceMinor / 100)}.${String(priceMinor % 100).padStart(2, '0')}`;
-  }
-
-  private productHeading(snapshot: NoonProductSnapshot): string {
-    const title = snapshot.title?.trim();
-    return title ? `${title}\nSKU: ${snapshot.sku}` : `SKU: ${snapshot.sku}`;
-  }
-
-  private currentOfferSummary(
-    snapshot: NoonProductSnapshot,
-    leader: NormalizedNoonOffer,
-  ): string {
-    const availableOfferCount = snapshot.offers.filter(
-      (offer) => offer.available,
-    ).length;
-    return [
-      this.productHeading(snapshot),
-      `Текущий лидер: ${leader.sellerName}`,
-      `Цена: ${this.formatPrice(leader.priceMinor)}`,
-      `Доступных предложений: ${availableOfferCount}`,
-    ].join('\n');
-  }
-
-  private offerListMessages(
-    snapshot: NoonProductSnapshot,
-    leader: NormalizedNoonOffer,
-  ): string[] {
-    const offers = snapshot.offers
-      .filter((offer) => offer.available)
-      .sort((left, right) => {
-        if (left.offerId === leader.offerId) return -1;
-        if (right.offerId === leader.offerId) return 1;
-        return (
-          left.priceMinor - right.priceMinor ||
-          left.offerId.localeCompare(right.offerId)
-        );
-      });
-    const lines = offers.map((offer, index) =>
-      offer.offerId === leader.offerId
-        ? `🏆 ЛИДЕР — ${offer.sellerName} — ${this.formatPrice(offer.priceMinor)}`
-        : `${index + 1}. ${offer.sellerName} — ${this.formatPrice(offer.priceMinor)}`,
-    );
-
-    return this.chunkLines('Все доступные предложения:', lines);
-  }
-
-  private chunkLines(header: string, lines: string[]): string[] {
-    const maxLength = 4_000;
-    const messages: string[] = [];
-    let current = header;
-    for (const line of lines) {
-      if (`${current}\n${line}`.length > maxLength) {
-        messages.push(current);
-        current = `${header} (продолжение)\n${line}`;
-      } else {
-        current += `\n${line}`;
-      }
-    }
-    messages.push(current);
-    return messages;
-  }
-
-  private noonErrorMessage(error: unknown): string {
-    if (error instanceof BadRequestException) {
-      return 'Ссылка не распознана. Нужна HTTPS-ссылка на товар из noon.com/uae-en.';
-    }
-    if (error instanceof BadGatewayException) {
-      return 'Noon вернул неожиданные данные. Попробуйте этот товар позже.';
-    }
-    if (error instanceof ServiceUnavailableException) {
-      return 'Noon сейчас недоступен. Попробуйте ещё раз через несколько минут.';
-    }
-    return 'Не удалось проверить товар. Попробуйте ещё раз позже.';
   }
 
   private getIdentity(context: Context): TelegramIdentity | null {

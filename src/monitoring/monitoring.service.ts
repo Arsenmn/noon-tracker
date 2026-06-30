@@ -133,17 +133,11 @@ export class MonitoringService {
       return;
     }
 
-    const matchingOffer = snapshot.offers
-      .filter(
-        (offer) =>
-          offer.available &&
-          offer.priceMinor <= (subscription.targetPriceMinor as number),
-      )
-      .sort(
-        (left, right) =>
-          left.priceMinor - right.priceMinor ||
-          left.offerId.localeCompare(right.offerId),
-      )[0];
+    const targetPriceMinor = subscription.targetPriceMinor;
+    const matchingOffer = this.noonService.selectOfferAtOrBelow(
+      snapshot.offers,
+      targetPriceMinor,
+    );
 
     if (!matchingOffer) {
       if (subscription.targetPriceTriggered) {

@@ -129,4 +129,31 @@ describe('NoonClientService', () => {
       ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
+
+  it('refreshes the browser session once after an anti-bot response', async () => {
+    jest
+      .spyOn(axios, 'get')
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        message: 'service unavailable',
+        response: { status: 503 },
+      })
+      .mockResolvedValueOnce({ data: fixture('catalog-phone.json') });
+
+    await createService().extractOffersFromUrl(
+      'https://www.noon.com/uae-en/anonymized-phone/N70164930V/p/',
+    );
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(getSession).toHaveBeenNthCalledWith(
+      1,
+      'https://www.noon.com/uae-en/anonymized-phone/N70164930V/p/',
+      false,
+    );
+    expect(getSession).toHaveBeenNthCalledWith(
+      2,
+      'https://www.noon.com/uae-en/anonymized-phone/N70164930V/p/',
+      true,
+    );
+  });
 });

@@ -6,13 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosProxyConfig } from 'axios';
-import {
-  NoonPayloadError,
-  parseNoonCatalogPayload,
-} from '../noon-payload.parser';
+import { mapNoonCatalogSnapshot } from '../noon-snapshot.mapper';
 import {
   NOON_CURRENCY,
   NoonDeliveryContext,
+  NoonProductReference,
   NoonProductSnapshot,
 } from '../noon.types';
 import { parseNoonProductUrl } from '../noon-url';
@@ -77,40 +75,52 @@ export class NoonClientService {
       apiUrl.searchParams.set('o', reference.requestedOfferCode);
       productUrl.searchParams.set('o', reference.requestedOfferCode);
     }
-    const timeout = this.configService.get<number>(
-      'NOON_REQUEST_TIMEOUT_MS',
-      DEFAULT_REQUEST_TIMEOUT_MS,
+    const payload = await this.fetchCatalogPayload(
+      apiUrl,
+      productUrl,
+      reference.sku,
+      context,
     );
 
-    let payload: unknown;
-    let fetched = false;
+    try {
+      return mapNoonCatalogSnapshot(payload, reference, context);
+    } catch (error: unknown) {
+      const reason = this.errorMessage(error);
+      this.logger.error(
+        `Noon payload rejected sku=${reference.sku} type=payload reason=${reason}`,
+      );
+      throw new BadGatewayException(
+        `Noon returned an incompatible payload for ${reference.sku}: ${reason}`,
+      );
+    }
+  }
+
+  private async fetchCatalogPayload(
+    apiUrl: URL,
+    productUrl: URL,
+    sku: NoonProductReference['sku'],
+    context: NoonDeliveryContext,
+  ): Promise<unknown> {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const session = await this.sessionService.getSession(
         productUrl.toString(),
         attempt > 1,
       );
-      const headers: Record<string, string> = {
-        ...session.requestHeaders,
-        'User-Agent': session.userAgent,
-        Cookie: session.cookieHeader,
-        Referer: productUrl.toString(),
-        'x-mp-country': context.country,
-        'x-locale': context.locale,
-        'x-ecom-zonecode': context.zoneCode,
-      };
+      const headers = this.buildHeaders(session, productUrl, context);
       this.logger.log(
-        `Sending Noon request sku=${reference.sku} attempt=${attempt} userAgent=${JSON.stringify(session.userAgent)} cookieHeaderLength=${session.cookieHeader.length} headerKeys=${Object.keys(headers).join(',')}`,
+        `Sending Noon request sku=${sku} attempt=${attempt} userAgent=${JSON.stringify(session.userAgent)} cookieHeaderLength=${session.cookieHeader.length} headerKeys=${Object.keys(headers).join(',')}`,
       );
 
       try {
         const response = await axios.get<unknown>(apiUrl.toString(), {
           proxy: this.getProxy(),
-          timeout,
+          timeout: this.configService.get<number>(
+            'NOON_REQUEST_TIMEOUT_MS',
+            DEFAULT_REQUEST_TIMEOUT_MS,
+          ),
           headers,
         });
-        payload = response.data;
-        fetched = true;
-        break;
+        return response.data;
       } catch (error: unknown) {
         const status = axios.isAxiosError(error)
           ? error.response?.status
@@ -121,13 +131,9 @@ export class NoonClientService {
             ? error.message
             : String(error);
         this.logger.error(
-          `Noon request failed sku=${reference.sku} attempt=${attempt} type=fetch reason=${reason}`,
+          `Noon request failed sku=${sku} attempt=${attempt} type=fetch reason=${reason}`,
         );
-        if (
-          attempt === 1 &&
-          status !== undefined &&
-          [401, 403, 429, 503].includes(status)
-        ) {
+        if (attempt === 1 && this.requiresSessionRefresh(status)) {
           this.sessionService.invalidate();
           continue;
         }
@@ -135,60 +141,32 @@ export class NoonClientService {
       }
     }
 
-    if (!fetched) {
-      throw new ServiceUnavailableException(
-        `Could not fetch Noon product ${reference.sku}`,
-      );
-    }
+    throw new ServiceUnavailableException(
+      `Could not fetch Noon product ${sku}`,
+    );
+  }
 
-    try {
-      const product = parseNoonCatalogPayload(payload);
-      const normalizedSku = reference.sku.toLowerCase();
-      const normalizedOfferCode = reference.requestedOfferCode?.toLowerCase();
-      const targetedVariant = product.variants.find(
-        (variant) =>
-          variant.sku.toLowerCase() === normalizedSku ||
-          variant.offers.some(
-            ({ skuConfig, offer }) =>
-              skuConfig?.toLowerCase() === normalizedSku ||
-              (normalizedOfferCode !== undefined &&
-                offer.offerId.toLowerCase() === normalizedOfferCode),
-          ),
-      );
+  private buildHeaders(
+    session: Awaited<ReturnType<NoonSessionService['getSession']>>,
+    productUrl: URL,
+    context: NoonDeliveryContext,
+  ): Record<string, string> {
+    return {
+      ...session.requestHeaders,
+      'User-Agent': session.userAgent,
+      Cookie: session.cookieHeader,
+      Referer: productUrl.toString(),
+      'x-mp-country': context.country,
+      'x-locale': context.locale,
+      'x-ecom-zonecode': context.zoneCode,
+    };
+  }
 
-      if (!targetedVariant) {
-        throw new NoonPayloadError(
-          `No variant matched catalog SKU ${reference.sku}`,
-        );
-      }
+  private requiresSessionRefresh(status?: number): boolean {
+    return status !== undefined && [401, 403, 429, 503].includes(status);
+  }
 
-      const offers = targetedVariant.offers
-        .map(({ offer }) => offer)
-        .sort(
-          (left, right) =>
-            left.priceMinor - right.priceMinor ||
-            left.offerId.localeCompare(right.offerId),
-        );
-
-      return {
-        sku: reference.sku,
-        title: product.title,
-        canonicalUrl: reference.canonicalUrl,
-        fetchedAt: new Date().toISOString(),
-        context,
-        availability: offers.some((offer) => offer.available)
-          ? 'available'
-          : 'no_available_offers',
-        offers,
-      };
-    } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        `Noon payload rejected sku=${reference.sku} attempt=1 type=payload reason=${reason}`,
-      );
-      throw new BadGatewayException(
-        `Noon returned an incompatible payload for ${reference.sku}: ${reason}`,
-      );
-    }
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 }

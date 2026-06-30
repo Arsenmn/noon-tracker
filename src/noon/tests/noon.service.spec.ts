@@ -31,4 +31,29 @@ describe('NoonService', () => {
       ]),
     ).toBeNull();
   });
+
+  it('selects the cheapest available offer at or below a target', () => {
+    const offers = [
+      {
+        offerId: 'expensive',
+        sellerId: null,
+        sellerName: 'Expensive',
+        priceMinor: 95000,
+        listPriceMinor: 95000,
+        available: true,
+      },
+      {
+        offerId: 'target',
+        sellerId: null,
+        sellerName: 'Target',
+        priceMinor: 94900,
+        listPriceMinor: 94900,
+        available: true,
+      },
+    ];
+
+    expect(new NoonService().selectOfferAtOrBelow(offers, 94900)?.offerId).toBe(
+      'target',
+    );
+  });
 });

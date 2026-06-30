@@ -12,6 +12,7 @@ describe('validateEnvironment', () => {
         NOON_COOKIE_BOOTSTRAP_TIMEOUT_MS: 30_000,
         NOON_COOKIE_SETTLE_MS: 2_000,
         NOON_COOKIE_REFRESH_MS: 240_000,
+        NOON_BROWSER_IDLE_MS: 600_000,
         NOON_BROWSER_HEADLESS: 'true',
         NOON_DISABLE_HTTP2: 'false',
         NOON_BROWSER_USE_PROXY: 'false',

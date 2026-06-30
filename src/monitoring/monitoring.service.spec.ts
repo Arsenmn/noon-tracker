@@ -3,6 +3,7 @@ import { MonitoringService } from './monitoring.service';
 describe('MonitoringService', () => {
   const extractOffersFromUrl = jest.fn();
   const selectLeader = jest.fn();
+  const selectOfferAtOrBelow = jest.fn();
   const findActive = jest.fn();
   const setLastLeader = jest.fn();
   const rearmTargetPrice = jest.fn();
@@ -52,7 +53,7 @@ describe('MonitoringService', () => {
   const createService = (): MonitoringService =>
     new MonitoringService(
       { extractOffersFromUrl } as never,
-      { selectLeader },
+      { selectLeader, selectOfferAtOrBelow },
       {
         findActive,
         setLastLeader,
@@ -66,6 +67,7 @@ describe('MonitoringService', () => {
     jest.clearAllMocks();
     extractOffersFromUrl.mockResolvedValue(snapshot);
     selectLeader.mockReturnValue(leader);
+    selectOfferAtOrBelow.mockReturnValue(leader);
     snapshotUpdateExec.mockResolvedValue(undefined);
     setLastLeader.mockResolvedValue(undefined);
     rearmTargetPrice.mockResolvedValue(undefined);
@@ -138,6 +140,7 @@ describe('MonitoringService', () => {
       offers: [expensiveLeader],
     });
     selectLeader.mockReturnValue(expensiveLeader);
+    selectOfferAtOrBelow.mockReturnValue(null);
     findActive.mockResolvedValue([
       subscription({
         targetPriceMinor: 94900,

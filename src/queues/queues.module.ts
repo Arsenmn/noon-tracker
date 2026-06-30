@@ -10,7 +10,6 @@ import { NotificationQueueModule } from './notification-queue.module';
 import { QueueExecution, QueueExecutionSchema } from './queue-execution.schema';
 import { PRODUCT_MONITORING_QUEUE } from './queues.constants';
 import { QueuesService } from './queues.service';
-import { QueuesController } from './queues.controller';
 
 @Module({
   imports: [
@@ -26,7 +25,6 @@ import { QueuesController } from './queues.controller';
       { name: QueueExecution.name, schema: QueueExecutionSchema },
     ]),
   ],
-  controllers: [QueuesController],
   providers: [QueuesService, MonitoringProcessor, NotificationProcessor],
   exports: [QueuesService],
 })

@@ -118,10 +118,6 @@ AED 899.99 → 89999
 
 MongoDB и Redis не участвуют в одной ACID-транзакции. Поэтому именно idempotent operations обеспечивают корректное повторное выполнение.
 
-## Legacy-схемы
-
-`src/noon/schema/noon.schema.ts` содержит классы `Product` и `PriceAlert`, но они не зарегистрированы через `MongooseModule.forFeature()` и не используются текущим workflow. Рабочими являются схемы из `src/bot`, `src/monitoring` и `src/queues`. Legacy-файл можно удалить отдельным рефакторингом после проверки отсутствия внешних зависимостей.
-
 ## Эксплуатация и безопасность
 
 Локальные сообщения MongoDB `Connection not authenticating` создаются healthcheck-командой `mongosh` и означают, что authentication не настроен, а не ошибку входа. Для локальной разработки база опубликована только на `127.0.0.1`.
