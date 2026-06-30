@@ -1,0 +1,31 @@
+{
+  "product": {
+    "sku": "N00000003A",
+    "product_title": "Anonymized monitor",
+    "variants": [
+      {
+        "sku": "N00000003A",
+        "offers": [
+          {
+            "sku_config": "N00000003A",
+            "partner_code": "seller-z",
+            "store_name": "Seller Z",
+            "price": 500,
+            "sale_price": "450.00",
+            "offer_code": "offer-z",
+            "is_buyable": true
+          },
+          {
+            "sku_config": "N00000003A",
+            "partner_code": "seller-a",
+            "store_name": "Seller A",
+            "price": 480,
+            "sale_price": 450,
+            "offer_code": "offer-a",
+            "is_buyable": true
+          }
+        ]
+      }
+    ]
+  }
+}

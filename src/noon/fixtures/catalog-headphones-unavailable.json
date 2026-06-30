@@ -1,0 +1,22 @@
+{
+  "product": {
+    "sku": "N00000002A",
+    "product_title": "Anonymized headphones",
+    "variants": [
+      {
+        "sku": "N00000002A",
+        "offers": [
+          {
+            "sku_config": "N00000002A",
+            "partner_code": "seller-c",
+            "store_name": "Seller C",
+            "price": "75.50",
+            "sale_price": null,
+            "offer_code": "offer-c",
+            "is_buyable": false
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "product": {
+    "sku": "N70164930V",
+    "product_title": "Anonymized smartphone",
+    "variants": [
+      {
+        "sku": "N70164930V-1",
+        "offers": [
+          {
+            "sku_config": "N70164930V",
+            "partner_code": "seller-a",
+            "store_name": "Seller A",
+            "price": 1299,
+            "sale_price": 949,
+            "offer_code": "offer-b",
+            "is_buyable": true
+          },
+          {
+            "sku_config": "N70164930V",
+            "partner_code": "seller-b",
+            "store_name": "Seller B",
+            "price": "999.99",
+            "sale_price": null,
+            "offer_code": "offer-a",
+            "is_buyable": true
+          }
+        ]
+      }
+    ]
+  }
+}

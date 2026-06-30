@@ -1,0 +1,71 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: noon-tracker:local
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    init: true
+    shm_size: '512mb'
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/noon-tracker
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_DB: '${REDIS_DB:-0}'
+      NOON_API_BASE_URL: ${NOON_API_BASE_URL:-https://www.noon.com/_vs/nc/mp-customer-catalog-api}
+      NOON_BROWSER_EXECUTABLE: ${NOON_BROWSER_EXECUTABLE:-/usr/bin/chromium}
+      NOON_BROWSER_HEADLESS: ${NOON_BROWSER_HEADLESS:-true}
+      NOON_DISABLE_HTTP2: ${NOON_DISABLE_HTTP2:-false}
+      OFFERS_CRON: '${OFFERS_CRON:-* * * * *}'
+      TZ: ${TZ:-Asia/Almaty}
+      PORT: '3000'
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:3000/']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    stop_grace_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8
+    ports:
+      - '127.0.0.1:${MONGODB_PORT:-27017}:27017'
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', 'db.runCommand({ ping: 1 }).ok']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  mongodb-data:
